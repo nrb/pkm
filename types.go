@@ -2,6 +2,14 @@ package main
 
 import "time"
 
+// PKMConfig holds configuration details for pkm
+type PKMConfig struct {
+	// WorkDir holds the directory for scripts and data generated from them.
+	WorkDir string `json:"workDir"`
+	// GitRoot holds the directory where local git clones are kept.
+	GitRoot string `json:"gitRoot"`
+}
+
 // GitHubReview represents a GitHub pull request review request
 type GitHubReview struct {
 	Number     int              `json:"number"`

@@ -30,9 +30,20 @@ var reportCmd = &cobra.Command{
 	RunE:  runReport,
 }
 
+var envCmd = &cobra.Command{
+	Use:   "env",
+	Short: "Display environment available to scripts",
+	Long:  `Displays environment variables for scripts executed by pkm.`,
+	RunE:  runEnv,
+}
+
+var config PKMConfig
+
 func init() {
+	readOrCreateConfig()
 	rootCmd.AddCommand(gatherCmd)
 	rootCmd.AddCommand(reportCmd)
+	rootCmd.AddCommand(envCmd)
 }
 
 func main() {
@@ -44,11 +55,6 @@ func main() {
 func runGather(cmd *cobra.Command, args []string) error {
 	fmt.Println("Gathering data...")
 
-	execDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
 	scripts := []string{
 		"gh_reviews.sh",
 		"list_jira_issues.sh",
@@ -56,13 +62,14 @@ func runGather(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, script := range scripts {
-		scriptPath := filepath.Join(execDir, script)
+		scriptPath := filepath.Join(config.ScriptDir(), script)
 		fmt.Printf("Running %s...\n", script)
 
-		shellCmd := exec.Command("bash", scriptPath)
-		shellCmd.Dir = execDir
+		shellCmd := exec.Command("zsh", scriptPath)
+		shellCmd.Dir = config.WorkDir
 		shellCmd.Stdout = os.Stdout
 		shellCmd.Stderr = os.Stderr
+		shellCmd.Env = append(os.Environ(), config.EnvVars()...)
 
 		if err := shellCmd.Run(); err != nil {
 			return fmt.Errorf("failed to run %s: %w", script, err)
@@ -76,23 +83,18 @@ func runGather(cmd *cobra.Command, args []string) error {
 func runReport(cmd *cobra.Command, args []string) error {
 	fmt.Println("Generating report...")
 
-	execDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
 	var reviews []GitHubReview
-	if err := readJSONFile(filepath.Join(execDir, "gh_reviews.json"), &reviews); err != nil {
+	if err := readJSONFile(filepath.Join(config.DataDir(), "gh_reviews.json"), &reviews); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not read gh_reviews.json: %v\n", err)
 	}
 
 	var issues []JiraIssue
-	if err := readJSONFile(filepath.Join(execDir, "jira_issues.json"), &issues); err != nil {
+	if err := readJSONFile(filepath.Join(config.DataDir(), "jira_issues.json"), &issues); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not read jira_issues.json: %v\n", err)
 	}
 
 	var commits []GitCommit
-	if err := readJSONFile(filepath.Join(execDir, "todays_commits.json"), &commits); err != nil {
+	if err := readJSONFile(filepath.Join(config.DataDir(), "todays_commits.json"), &commits); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not read todays_commits.json: %v\n", err)
 	}
 
@@ -103,6 +105,36 @@ func runReport(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runEnv(cmd *cobra.Command, args []string) error {
+	for _, line := range config.EnvVars() {
+		fmt.Println(line)
+	}
+	return nil
+}
+
+func readOrCreateConfig() error {
+	fileName := "config.json"
+	workDir := filepath.Join(os.ExpandEnv("$HOME"), ".pkm")
+	filePath := filepath.Join(workDir, fileName)
+
+	config.WorkDir = workDir
+	config.GitRoot = filepath.Join(os.ExpandEnv("$HOME"), "projects")
+
+	// File contents will overwrite our coded default.
+	if err := readJSONFile(filePath, &config); err == nil {
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "Could not read %s, creating config file.\n", filePath)
+	bytes, err := json.Marshal(config)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filePath, bytes, 0666)
+}
+
+// readJSONFIle reads a JSON file within our working directory
 func readJSONFile(filename string, v any) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -158,4 +190,24 @@ func printGitCommits(commits []GitCommit) {
 		}
 	}
 	fmt.Println()
+}
+
+// ScriptDir returns the scripts directory from within our working directory.
+func (c PKMConfig) ScriptDir() string {
+	return filepath.Join(c.WorkDir, "scripts")
+}
+
+// DataDir returns the data directory from within our working directory.
+func (c PKMConfig) DataDir() string {
+	return filepath.Join(c.WorkDir, "data")
+}
+
+// EnvVars returns the environment variables that should be available to data scripts.
+func (c PKMConfig) EnvVars() []string {
+	return []string{
+		fmt.Sprintf("PKM_SCRIPT_DIR=%s", c.ScriptDir()),
+		fmt.Sprintf("PKM_DATA_DIR=%s", c.DataDir()),
+		fmt.Sprintf("PKM_DIR=%s", c.WorkDir),
+		fmt.Sprintf("PKM_GIT_ROOT=%s", c.GitRoot),
+	}
 }
