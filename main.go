@@ -74,7 +74,7 @@ func runGather(cmd *cobra.Command, args []string) error {
 }
 
 func runReport(cmd *cobra.Command, args []string) error {
-	fmt.Println("Generating report...\n")
+	fmt.Println("Generating report...")
 
 	execDir, err := os.Getwd()
 	if err != nil {
@@ -103,7 +103,7 @@ func runReport(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func readJSONFile(filename string, v interface{}) error {
+func readJSONFile(filename string, v any) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return err
